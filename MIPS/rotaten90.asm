@@ -6,11 +6,11 @@ rfname:		.asciiz "result.bmp"
 buf:		.space	2097152
 		#10240		# 10kB
 # change also in readf !!!
-#2097152		# 2MB	
-		.align 1	# or .align 2 and .space 16(+4) <- 2 first bytes zeroed
-fileheader:	.space 18	# +4B for DIB header size
+		#2097152	# 2MB	
+		.align 1			# or .align 2 and .space 16(+4) <- 2 first bytes zeroed
+fileheader:	.space 18			# +4B for DIB header size
 		#.align 2 ?
-dibheader:	.space 36	# varies!! => sbrk
+dibheader:	.space 36			# varies!
 	
 intro:		.asciiz	"Welcome to Rotaten90 v.1.0! Let's rotate some bitmaps!"
 in_f:		.asciiz "\nGimme the image fpath: "
@@ -35,7 +35,7 @@ BM:		.ascii	"BM"
 # $s3 - file size				!
 # $s2 - pixel array start (offset)		!
 # $s1 - DIB header size				!
-# Temporar saved:
+# Temporary saved:
 # $t9 - bitmap's width in pixels		!!
 # $t8 - bitmap's height in pixels		!!
 # $t7 - number of bits per pixel		<- choose path
@@ -52,22 +52,22 @@ openf:		li	$v0, 13
 		li	$a1, 0			# Open (flags are 0: read, 1: write)
 		li	$a2, 0			# mode is ignored
 		syscall
-		move	$s7, $v0	# file descriptor
+		move	$s7, $v0		# file descriptor
 res:		li	$v0, 4
 		la	$a0, ores
 		syscall
 		li	$v0, 1
 		move	$a0, $s7
 		syscall
-		blt	$s7, 0, exit	# opening file did not succeed
+		blt	$s7, 0, exit		# opening file did not succeed
 readf:		
 	# read fileheader
 		li	$v0, 14
 		move	$a0, $s7
 		la	$a1, fileheader
-		li	$a2, 18		# fileheader size
+		li	$a2, 18			# fileheader size
 		syscall
-		move	$t1, $v0	# number of characters read
+		move	$t1, $v0		# number of characters read
 		li	$v0, 4
 		la	$a0, chars
 		syscall
@@ -75,7 +75,7 @@ readf:
 		move	$a0, $t1
 		syscall
 	# examine fileheader
-		lhu	$t2, BM($zero)	# load "BM" to compare to
+		lhu	$t2, BM($zero)		# load "BM" to compare to
 			# debug
 			li	$v0, 4
 			la	$a0, readcom
@@ -93,8 +93,9 @@ readf:
 			move	$a0, $t3
 			syscall
 			# _debug
-		bne	$t3, $t2, exit	# not proper BMP format
-			# +close !!
+		bne	$t3, $t2, close		# not proper BMP format
+						# branch to close because both files share the same ..
+						# .. register for fd
 		# load file size
 		li	$t2, 2
 		lw	$s3, fileheader($t2)
@@ -135,9 +136,9 @@ readf:
 		li	$v0, 14
 		move	$a0, $s7
 		la	$a1, dibheader
-		li	$a2, 36		# dibheader size
+		li	$a2, 36			# dibheader size
 		syscall
-		move	$t1, $v0	# number of characters read
+		move	$t1, $v0		# number of characters read
 		li	$v0, 4
 		la	$a0, chars
 		syscall
@@ -191,10 +192,10 @@ readf:
 		# the rest ...
 		
 		# sbrk: allocate memory for pixel array
-		li	$v0, 9		# sbrk
-		move	$a0, $s6	# number of bytes to allocate
+		li	$v0, 9			# sbrk
+		move	$a0, $s6		# number of bytes to allocate
 		syscall
-		move	$t6, $v0	# address of allocated memory
+		move	$t6, $v0		# address of allocated memory
 			# debug
 			li	$v0, 4
 			la	$a0, readcom
@@ -205,11 +206,11 @@ readf:
 			# _debug
 	# read pixel array		
 		li	$v0, 14
-		move	$a0, $s7	# pass fd
-		move	$a1, $t6	# pass address of input buffer
-		move	$a2, $s6	# pass maximum number of characters to read
+		move	$a0, $s7		# pass fd
+		move	$a1, $t6		# pass address of input buffer
+		move	$a2, $s6		# pass maximum number of characters to read
 		syscall
-		move	$t1, $v0	# number of characters read
+		move	$t1, $v0		# number of characters read
 		li	$v0, 4
 		la	$a0, chars
 		syscall
@@ -218,7 +219,7 @@ readf:
 		syscall
 	# close input file
 		li	$v0, 16
-		move	$a0, $s7	# file descriptor to close
+		move	$a0, $s7		# fd to close
 		syscall
 				
 input:		li	$v0, 4
@@ -265,9 +266,9 @@ write:	# open
 		syscall
 
 		
-chck_n:		li	$t0, 0x0003	# divisibility by 4 : 2ls bytes = 0
+chck_n:		li	$t0, 0x0003		# divisibility by 4 : 2ls bytes = 0
 		and	$t0, $s5, $t0
-zerodg:		beq	$t0, 0, close	# write #zerodg!!!!
+zerodg:		beq	$t0, 0, close		# write #zerodg!!!!
 		beq	$t0, 2, halfrot
 		beq	$t0, 3, rotneg
 #rot90(pos) -- mask-and result=1
@@ -288,15 +289,15 @@ rotneg:		li	$v0, 4
 		la	$a0, rneg90
 		syscall	
 	# do processing
-	#b close
+		#b close
 	
-# process (czesc wspolna)
+# process (common part)
 # end of process
 	
 close:		
 	# close output file
 		li	$v0, 16
-		move	$a0, $s7		# file descriptor to close
+		move	$a0, $s7		# fd to close
 		syscall
 		
 done:		li	$v0, 4
