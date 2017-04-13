@@ -25,6 +25,8 @@ r90:		.asciiz "\nIt's a positive ninety!"
 ok:		.asciiz	"\nDone"
 emes:		.asciiz "\nExit\n"
 readcom:	.asciiz "\nRead: "
+rowsize:	.asciiz "\nRowsize: "
+pix_number:	.asciiz "\nPixel number: "
 		.align	2
 BM:		.ascii	"BM"
 
@@ -32,7 +34,7 @@ BM:		.ascii	"BM"
 # $s7 - input file's descriptor	then output	!
 # $s6 - size of pixel array (in bytes)		! = $s3 - (18 + $s1)
 # $s5 - temp: how many rotations		!
-# $s4 - 2 least significant bytes of input n
+# $s4 - 2 least significant bytes of input n, then output buffer
 # $s3 - file size				!
 # $s2 - pixel array start (offset)		!
 # $s1 - DIB header size				!
@@ -230,7 +232,7 @@ input:		li	$v0, 4
 		la	$a0, in_n
 		syscall
 		####
-		li	$s5, 12
+		li	$s5, 2
 		####
 		li	$v0, 4
 		la	$a0, fed
@@ -308,7 +310,86 @@ halfrot:
 		li	$v0, 4
 		la	$a0, r180
 		syscall	
-	# do processing
+	# write pixels in loop
+		# prerequisite: 24bit/px
+		# $t9 - width in pixels
+		# $t8 - height in pixels
+		# $t7 - bits/px
+		# $t6 - input pixel array
+		srl	$t2, $t7, 3		# bytes/px (divide by 8)
+		multu	$t2, $t9
+		mflo	$t3			# size of row, without padding
+		and	$t5, $t3, 0x0003	# row_size mod 4 (bytes)
+		beqz	$t5, halfrot_nopad
+		li	$t4, 4
+		subu	$t5, $t4, $t5		# padding
+		addu	$t3, $t3, $t5		# size of row (in bytes)
+halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
+		move	$a0, $t3
+		syscall
+		move	$s4, $v0
+			# debug
+			li	$v0, 4
+			la	$a0, readcom
+			syscall
+			li	$v0, 1
+			move	$a0, $s4
+			syscall
+			# _debug	
+		# $t3 - size of row (in bytes)
+		# $t2 - bytes/px
+		# $s4 - output buffer (for 1 row)
+			# debug
+			li	$v0, 4
+			la	$a0, rowsize
+			syscall
+			li	$v0, 1
+			move	$a0, $t3
+			syscall
+			# _debug
+		addiu	$t0, $t8, -1
+		multu	$t0, $t3
+		mflo	$t0			# start byte of last row
+		addiu	$t1, $t9, -1
+		multu	$t1, $t2
+		mflo	$t1			# byte offset to last pixel in row
+		addu	$t4, $t0, $t1
+		# $t4 - current position (byte)	in pixel array
+			# debug
+			li	$v0, 4
+			la	$a0, pix_number
+			syscall
+			li	$v0, 1
+			move	$a0, $t4
+			syscall
+			# _debug
+		addu	$t4, $t6, $t4		# ABSOLUTE	-- input
+			# move	$t5, $zero	
+		addu	$t5, $s4, $zero		# ABSOLUTE	-- output
+		# $t5 - current position (byte) in output buffer ABSOLUTE
+		# write 2ms bytes of pixel to buffer
+		lbu	$t0, 0($t4)
+		sb	$t0, 0($t5)
+		lbu	$t0, 1($t4)
+		sb	$t0, 1($t5)
+		lbu	$t0, 2($t4)
+		sb	$t0, 2($t5)
+		addiu	$t4, $t4, -3
+		addiu	$t5, $t5, +3
+		
+		
+		
+		
+		# write buffer to output file
+		li	$v0, 15
+		
+		
+		move	$t0, $t9		# current column
+		move	$t1, $t8		# current row
+		
+		
+		
+	
 		b close
 	
 rotneg:		li	$v0, 4
