@@ -1,17 +1,19 @@
 # NOTE: Memory segments (text, data, ...) are limited to 4MB each starting at their respective base addresses.
 		.data
-fname:		.asciiz	"image1.bmp"
-rfname:		.asciiz "result.bmp"
+		.align	2			# or .align 2 and .space 16(+4) <- 2 first bytes zeroed
+		.space	2			# for proper alignment of fileheader buffer
+fileheader:	.space	18			# +4B for DIB header size
+		#.align 2 ?
+dibheader:	.space	36		# varies!
+
+fname:		.asciiz	"image2.bmp"
+rfname:		.asciiz "result2.bmp"
 # przy wczytywaniu jako arg. uwazac na newline !!!
-buf:		.space	10240			# auxiliary buffer for writing chunks of bitmap data ..
+#buf:		.space	10240			# auxiliary buffer for writing chunks of bitmap data ..
 						# .. into output file
 		#10240		# 10kB
 # change also in readf !!!
 		#2097152	# 2MB	
-		.align	1			# or .align 2 and .space 16(+4) <- 2 first bytes zeroed
-fileheader:	.space	18			# +4B for DIB header size
-		#.align 2 ?
-dibheader:	.space	36		# varies!
 	
 intro:		.asciiz	"Welcome to Rotaten90 v.1.0! Let's rotate some bitmaps!"
 in_f:		.asciiz "\nGimme the image fpath: "
@@ -278,15 +280,14 @@ same_hdr:
 		la	$a1, fileheader		# pass address of output buffer
 		move	$a2, $t1		# pass number of characters to write
 		syscall
-		# check
-		move	$t0, $v0		# number of characters written
-		li	$v0, 4
-		la	$a0, chars
-		syscall
-		li	$v0, 1
-		move	$a0, $t0
-		syscall
-		
+			# check
+			move	$t0, $v0		# number of characters written
+			li	$v0, 4
+			la	$a0, chars
+			syscall
+			li	$v0, 1
+			move	$a0, $t0
+			syscall	
 		beq	$s4, 2, halfrot
 	# pixel array : 0*
 	# write unmodified bmp data
@@ -295,15 +296,14 @@ same_hdr:
 		move	$a1, $t6		# pass address of output buffer
 		move	$a2, $s6		# pass number of characters to write
 		syscall
-		# check
-		move	$t0, $v0		# number of characters written
-		li	$v0, 4
-		la	$a0, chars
-		syscall
-		li	$v0, 1
-		move	$a0, $t0
-		syscall
-		
+			# check
+			move	$t0, $v0		# number of characters written
+			li	$v0, 4
+			la	$a0, chars
+			syscall
+			li	$v0, 1
+			move	$a0, $t0
+			syscall
 		b close			
 halfrot:	
 	# pixel array : 180*	
@@ -320,9 +320,11 @@ halfrot:
 		multu	$t2, $t9
 		mflo	$t3			# size of row, without padding
 		and	$t5, $t3, 0x0003	# row_size mod 4 (bytes)
+		move	$t7, $zero		# [TODO][temp] padding
 		beqz	$t5, halfrot_nopad
 		li	$t4, 4
 		subu	$t5, $t4, $t5		# padding
+		move	$t7, $t5		# [TODO][temp] padding
 		addu	$t3, $t3, $t5		# size of row (in bytes)
 halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 		move	$a0, $t3
@@ -367,29 +369,41 @@ halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 			# move	$t5, $zero	
 		addu	$t5, $s4, $zero		# ABSOLUTE	-- output
 		# $t5 - current position (byte) in output buffer ABSOLUTE
+		addu	$t0, $t6, $t0
+		# $t0 - start byte of current row ABSOLUTE
 		# write 2ms bytes of pixel to buffer
-		lbu	$t0, 0($t4)
-		sb	$t0, 0($t5)
-		lbu	$t0, 1($t4)
-		sb	$t0, 1($t5)
-		lbu	$t0, 2($t4)
-		sb	$t0, 2($t5)
+r180_fillbuf:	lbu	$t1, 0($t4)
+		sb	$t1, 0($t5)
+		lbu	$t1, 1($t4)
+		sb	$t1, 1($t5)
+		lbu	$t1, 2($t4)
+		sb	$t1, 2($t5)
 		addiu	$t4, $t4, -3
 		addiu	$t5, $t5, +3
-		
-		
-		
-		
+		bgeu	$t4, $t0, r180_fillbuf	# not end of row yet
+		# reached end of row
+	# [TODO]	...			# add necessary padding (zeros)
 		# write buffer to output file
 		li	$v0, 15
-		
-		
-		move	$t0, $t9		# current column
-		move	$t1, $t8		# current row
-		
-		
-		
-	
+		move	$a0, $s7
+		move	$a1, $s4		# output buffer with 1 row
+		move	$a2, $t3
+		syscall
+			# check
+			#move	$v1, $v0	# number of characters written
+			#li	$v0, 4
+			#la	$a0, chars
+			#syscall
+			#li	$v0, 1
+			#move	$a0, $v1
+			#syscall
+		# $t7 - padding (in bytes)
+		# move to next row (upwards)
+		subu	$t0, $t0, $t3		# start byte of the next row
+		addu	$t5, $s4, $zero		# reset position in buffer ABSOLUTE
+		subu	$t4, $t4, $t7
+		subu	$t4, $t4, $t2		# set position in pixel array to next pixel to load
+		bgeu	$t0, $t6, r180_fillbuf	# branch if there are more rows left to rotate			
 		b close
 	
 rotneg:		li	$v0, 4
