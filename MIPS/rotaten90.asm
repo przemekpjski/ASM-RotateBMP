@@ -28,17 +28,19 @@ readcom:	.asciiz "\nRead: "
 BM:		.ascii	"BM"
 
 # Symbol Table:
-# $s7 - input file's descriptor
-# $s6 - size of pixel array (in bytes)
-# $s5 - temp: how many rotations
-# $s4 - output file's descriptor
-# $s3 - file size
-# $s2 - pixel array start (offset)
-# $s1 - DIB header size
+# $s7 - input file's descriptor	then output	!
+# $s6 - size of pixel array (in bytes)		! = $s3 - (18 + $s1)
+# $s5 - temp: how many rotations		!
+# $s4
+# $s3 - file size				!
+# $s2 - pixel array start (offset)		!
+# $s1 - DIB header size				!
 # Temporar saved:
-# $t9 - bitmap's width in pixels
-# $t8 - bitmap's height in pixels
-# $t7 - number of bits per pixel
+# $t9 - bitmap's width in pixels		!!
+# $t8 - bitmap's height in pixels		!!
+# $t7 - number of bits per pixel		<- choose path
+# $t6 - address of allocated memory for pixel array
+
 
 		.text
 		.globl	main
@@ -82,7 +84,7 @@ readf:
 			move	$a0, $t2
 			syscall
 			# _debug	
-		lhu	$t3, fileheader	# load expected "BM" starting bytes
+		lhu	$t3, fileheader($zero)	# load expected "BM" starting bytes
 			# debug
 			li	$v0, 4
 			la	$a0, readcom
@@ -143,24 +145,82 @@ readf:
 		move	$a0, $t1
 		syscall
 	# examine DIB header
+		# load width of the bitmap
+		lw	$t9, dibheader($zero)
+			# debug
+			li	$v0, 4
+			la	$a0, readcom
+			syscall
+			li	$v0, 1
+			move	$a0, $t9
+			syscall
+			# _debug
+		# load height of the bitmap
+		li	$t2, 4
+		lw	$t8, dibheader($t2)
+			# debug
+			li	$v0, 4
+			la	$a0, readcom
+			syscall
+			li	$v0, 1
+			move	$a0, $t8
+			syscall
+			# _debug
+		# load number of bits per pixel
+		li	$t2, 10
+		lhu	$t7, dibheader($t2)
+			# debug
+			li	$v0, 4
+			la	$a0, readcom
+			syscall
+			li	$v0, 1
+			move	$a0, $t7
+			syscall
+			# _debug
+		# load size of pixel array (bitmap data)
+		li	$t2, 16
+		lw	$s6, dibheader($t2)
+			# debug
+			li	$v0, 4
+			la	$a0, readcom
+			syscall
+			li	$v0, 1
+			move	$a0, $s6
+			syscall
+			# _debug
+		# the rest ...
 		
-		
-		
+		# sbrk: allocate memory for pixel array
+		li	$v0, 9		# sbrk
+		move	$a0, $s6	# number of bytes to allocate
+		syscall
+		move	$t6, $v0	# address of allocated memory
+			# debug
+			li	$v0, 4
+			la	$a0, readcom
+			syscall
+			li	$v0, 1
+			move	$a0, $t6
+			syscall
+			# _debug
+	# read pixel array		
 		li	$v0, 14
 		move	$a0, $s7	# pass fd
-		la	$a1, buf		# pass address of input buffer
-		li	$a2, 2097152	# pass maximum number of characters to read
+		move	$a1, $t6	# pass address of input buffer
+		move	$a2, $s6	# pass maximum number of characters to read
 		syscall
-		move	$s6, $v0	# number of characters read
+		move	$t1, $v0	# number of characters read
 		li	$v0, 4
 		la	$a0, chars
 		syscall
 		li	$v0, 1
-		move	$a0, $s6
+		move	$a0, $t1
 		syscall
-		
-		
-		
+	# close input file
+		li	$v0, 16
+		move	$a0, $s7	# file descriptor to close
+		syscall
+				
 input:		li	$v0, 4
 		la	$a0, in_n
 		syscall
@@ -174,15 +234,46 @@ input:		li	$v0, 4
 		move	$a0, $s5
 		syscall
 		
-zerodg:		li	$t0, 0x0003	# divisibility by 4 : 2ls bytes = 0
+write:	# open
+		li	$v0, 13
+		la	$a0, rfname
+		li	$a1, 1			# Open for write with create, not append
+		li	$a2, 0			# mode is ignored
+		syscall
+		move	$s7, $v0		# file descriptor
+	# open result
+		li	$v0, 4
+		la	$a0, ores
+		syscall
+		li	$v0, 1
+		move	$a0, $s7
+		syscall
+		blt	$s7, 0, exit		# opening file did not succeed
+	# write fileheader from memory
+		li	$v0, 15
+		move	$a0, $s7		# pass fd
+		la	$a1, fileheader		# pass address of output buffer
+		li	$a2, 18			# pass number of characters to write
+		syscall
+	# check
+		move	$t0, $v0		# number of characters written
+		li	$v0, 4
+		la	$a0, chars
+		syscall
+		li	$v0, 1
+		move	$a0, $t0
+		syscall
+
+		
+chck_n:		li	$t0, 0x0003	# divisibility by 4 : 2ls bytes = 0
 		and	$t0, $s5, $t0
-		beq	$t0, 0, close	# write #zerodg!!!!
+zerodg:		beq	$t0, 0, close	# write #zerodg!!!!
 		beq	$t0, 2, halfrot
 		beq	$t0, 3, rotneg
 #rot90(pos) -- mask-and result=1
 		li	$v0, 4
 		la	$a0, r90
-		syscall	
+		syscall
 	# do processing
 		b close
 	# or branch to done
@@ -202,47 +293,12 @@ rotneg:		li	$v0, 4
 # process (czesc wspolna)
 # end of process
 	
-close:		li	$v0, 16
-		move	$a0, $s7	# file descriptor to close
-		syscall
-	
-# or process here, if whole file loaded into memory
-	
-write:	# open
-		li	$v0, 13
-		la	$a0, rfname
-		li	$a1, 1			# Open for write with create, not append
-		li	$a2, 0			# mode is ignored
-		syscall
-		move	$s4, $v0	# file descriptor
-	# open result
-		li	$v0, 4
-		la	$a0, ores
-		syscall
-		li	$v0, 1
-		move	$a0, $s4
-		syscall
-		blt	$s4, 0, exit	# opening file did not succeed
-	# write bitmap from memory
-		li	$v0, 15
-		move	$a0, $s4	# pass fd
-		la	$a1, buf	# pass address of output buffer
-		move	$a2, $s6	# pass number of characters to write
-		syscall
-	# check
-		move	$t0, $v0	# number of characters written
-		li	$v0, 4
-		la	$a0, chars
-		syscall
-		li	$v0, 1
-		move	$a0, $t0
-		syscall
-	# close
+close:		
+	# close output file
 		li	$v0, 16
-		move	$a0, $s4	# file descriptor to close
+		move	$a0, $s7		# file descriptor to close
 		syscall
-	
-	
+		
 done:		li	$v0, 4
 		la	$a0, ok
 		syscall
