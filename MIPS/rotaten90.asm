@@ -1,5 +1,30 @@
 # NOTE: Memory segments (text, data, ...) are limited to 4MB each starting at their respective base addresses.
-		
+	
+# Prerequisites for BMP format:
+# 24bit/px
+# 40B DIB header
+
+# Symbol Table:
+# $s7 - input, output fd's
+# $s6 - BMP width				 (in pixels)
+# $s5 - BMP height				 (in pixels)
+# $s4 - pixel array size			 (in bytes)
+# $s3 - pixel array address			 (allocated)
+# $s2 - size of row	in output file		 (in bytes)
+# $s1 - output buffer for 1 row			 (size = $s2)
+# $s0 - 2 least significant bits of user's input (of number of 90* rotations)
+#
+# $t9 - size of row in input file	(in bytes)
+# $t8 - row/column counter, for outer loop iteration
+# $t7 - ($s1 + $s2 - row_padding), for inner loop iteration		<- ABSOLUTE ADDR
+# $t6 - starting position of pixel array traversal in inner loop	<- ABSOLUTE ADDR
+# $t5 - position in output buffer for pixel storing, in inner loop	<- ABSOLUTE ADDR
+# $t4 - position in pixel array during traversal, in inner loop		<- ABSOLUTE ADDR
+# $t3 -	temp
+# $t2 - temp
+# $t1 - temp
+# $t0 - temp
+	
 		.data
 		.align	2			# or .align 2 and .space 16(+4) <- 2 first bytes zeroed
 		.space	2			# for proper alignment of fileheader buffer
@@ -8,7 +33,7 @@ fileheader:	.space	18			# +4B for DIB header size
 dibheader:	.space	36
 
 fname:		.asciiz	"samples/image2.bmp"
-rfname:		.asciiz "results/rest_90.bmp"
+rfname:		.asciiz "results/rest_180.bmp"
 # przy wczytywaniu jako arg. uwazac na newline !!! [TODO]
 	
 intro:		.asciiz	"Welcome to Rotaten90 v.1.0! Let's rotate some bitmaps!"
@@ -29,31 +54,6 @@ pix_number:	.asciiz "\nPixel number: "
 allocadr:	.asciiz "\nAllocated at addr: "
 		.align	2
 BM:		.ascii	"BM"
-
-# Prerequisites for BMP format:
-# 24bit/px
-# 40B DIB header
-
-# Symbol Table:
-# $s7 - input, output fd's
-# $s6 - BMP width					(in pixels)
-# $s5 - BMP height					(in pixels)
-# $s4 - pixel array size			(in bytes)
-# $s3 - pixel array address			(allocated)
-# $s2 - size of row	in output file	(in bytes)
-# $s1 - output buffer for 1 row		(size = $s2)
-# $s0 - 2 least significant bits of user's input
-#		(of number of 90* rotations)
-# $t9 - size of row in input file	(in bytes)
-# $t8 - row/column counter, for outer loop iteration
-# $t7 - ($s1 + $s2 - row_padding), for inner loop iteration			<- ABSOLUTE ADDR
-# $t6 - starting position of pixel array traversal in inner loop	<- ABSOLUTE ADDR
-# $t5 - position in output buffer for pixel storing, in inner loop	<- ABSOLUTE ADDR
-# $t4 - position in pixel array during traversal, in inner loop		<- ABSOLUTE ADDR
-# $t3 -	temp
-# $t2 - temp
-# $t1 - temp
-# $t0 - temp
 
 		.text
 		.globl	main
@@ -249,7 +249,7 @@ input:		li	$v0, 4
 		la	$a0, in_n
 		syscall
 		####
-		li	$t0, 1
+		li	$t0, 2
 		####
 			# debug
 			li	$v0, 4
@@ -290,16 +290,8 @@ chck_n:		li	$t1, 0x0003		# divisibility by 4 : 2ls bytes = 0
 		move	$t0, $s6
 		move	$s6, $s5
 		move	$s5, $t0
-	# calculate new size of row (in bytes)
-		# prerequisite: 24bit/px
-		# $s6 - new width in pixels
-		# $s5 - new height in pixels
-		# bbb bytes - bits/px -> padding (new) -> padding (old)? [?]
-		# $s3 - input pixel array
-		
-		# $s2 - size of new row (in bytes)
-		#;srl	$t3, $t7, 3		# bytes/px (divide by 8)
-		li		$t3, 3			# bbb
+	# calculate new size of row (in bytes)		
+		li	$t3, 3			# bbb
 		multu	$t3, $s6
 		mflo	$s2			# size of row, without padding
 		move	$t7, $s2	# stop condition for inner loop
@@ -323,7 +315,6 @@ qtrrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 			syscall
 			# _debug
 	# calculate new BMP data size (new pixel array size) (in bytes)
-		# $s2 - size of row (in bytes)
 		multu	$s2, $s5
 		mflo	$t0
 	# store new BMP data size
@@ -389,18 +380,15 @@ qtrrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 			syscall
 			
 	# calculate size of old rows (in bytes)
-		li		$t3, 3			# bbb
+		li	$t3, 3			# bbb
 		multu	$t3, $s5		# mult by old width
 		mflo	$t9			# size of old row, without padding
 		and	$t0, $t9, 0x0003	# row_size mod 4 (bytes)
-		#move	$t2, $zero		# [TODO][temp] padding
 		beqz	$t0, qtrrot_nopadold	# no padding
 		li	$t1, 4
 		subu	$t0, $t1, $t0		# padding (old)
-		#move	$t2, $t0		# [TODO][temp] padding (old)(in bytes)
 		addu	$t9, $t9, $t0		# size of old row (in bytes)
-qtrrot_nopadold:	
-			
+qtrrot_nopadold:				
 		beq	$s0, 3, negqtrrot
 
 qtrrot:	
@@ -409,7 +397,6 @@ qtrrot:
 		li	$v0, 4
 		la	$a0, r90
 		syscall		
-#post qtrrot_nopad:
 			# debug
 			li	$v0, 4
 			la	$a0, rowsize
@@ -419,12 +406,8 @@ qtrrot:
 			syscall
 			# _debug
 			
-		
-		#;addiu	$t6, $s5, -1
-		#;multu	$t6, $s2
-		#;mflo	$t6	
 		addiu	$t1, $s5, -1	# old width-1
-		li		$t3, 3			# bbb
+		li	$t3, 3			# bbb
 		multu	$t1, $t3
 		mflo	$t1			# last pixel in first row (old)
 			# debug
@@ -436,12 +419,9 @@ qtrrot:
 			syscall
 			# _debug
 		addu	$t4, $s3, $t1		# ABSOLUTE -- input
-		move	$t6, $t4		# start pos in input
-				
+		move	$t6, $t4		# start pos in input				
 		addu	$t5, $s1, $zero		# ABSOLUTE -- output
 		addu	$t7, $s1, $t7		# stop condition for inner loop
-		#;addu	$t0, $s3, $t0
-		#;# $t0 - start byte of current row ABSOLUTE
 
 r90_fillbuf:	lbu	$t1, 0($t4)
 		sb	$t1, 0($t5)
@@ -451,7 +431,7 @@ r90_fillbuf:	lbu	$t1, 0($t4)
 		sb	$t1, 2($t5)
 		
 		addu	$t4, $t4, $t9		# move on to next row (downwards)(the same column)
-		addiu	$t5, $t5, +3
+		addiu	$t5, $t5, 3
 		bltu	$t5, $t7, r90_fillbuf	# not end of output row yet
 		
 		# reached end of column
@@ -462,32 +442,18 @@ r90_fillbuf:	lbu	$t1, 0($t4)
 		move	$a1, $s1		# output buffer with 1 row
 		move	$a2, $s2
 		syscall
-			# check
-			#move	$v1, $v0	# number of characters written
-			#li	$v0, 4
-			#la	$a0, chars
-			#syscall
-			#li	$v0, 1
-			#move	$a0, $v1
-			#syscall
-		#;# $t7 - padding (in bytes)
-		# move to next column (towards left)
-		#;subu	$t0, $t0, $s2		# start byte of the next row
+
 		addu	$t5, $s1, $zero		# reset position in buffer ABSOLUTE
-		#;subu	$t4, $t4, $t7
-		#;subu	$t4, $t4, $t2		# set position in pixel array to next pixel to load
 		addiu	$t4, $t6, -3
 		addiu	$t6, $t6, -3		#;move $t6, $t4
 		bgeu	$t4, $s3, r90_fillbuf	# branch if there are more columns left to rotate			
 		b close
-	# or branch to done
 	
 negqtrrot:	
 	# pixel array : 270*
 		li	$v0, 4
 		la	$a0, rneg90
-		syscall	
-		
+		syscall		
 			# debug
 			li	$v0, 4
 			la	$a0, rowsize
@@ -496,13 +462,10 @@ negqtrrot:
 			move	$a0, $s2
 			syscall
 			# _debug
-			
-		#;addiu	$t0, $s5, -1
-		#;multu	$t0, $s2
-		#;mflo	$t0	
-		addiu	$t1, $s6, -1	# old height-1
+				
+		addiu	$t1, $s6, -1		# old height-1
 		multu	$t1, $t9
-		mflo	$t1				# first pixel in last row (old)
+		mflo	$t1			# first pixel in last row (old)
 			# debug
 			li	$v0, 4
 			la	$a0, pix_number	# RELATIVE
@@ -516,9 +479,7 @@ negqtrrot:
 				
 		addu	$t5, $s1, $zero		# ABSOLUTE -- output
 		addu	$t7, $s1, $t7		# stop condition for inner loop
-		move	$t8, $zero			# iter var for outer loop (column counter)
-		#;addu	$t0, $s3, $t0
-		#;# $t0 - start byte of current row ABSOLUTE
+		move	$t8, $zero		# iter var for outer loop (column counter)
 
 r270_fillbuf:	lbu	$t1, 0($t4)
 		sb	$t1, 0($t5)
@@ -528,7 +489,7 @@ r270_fillbuf:	lbu	$t1, 0($t4)
 		sb	$t1, 2($t5)
 		
 		subu	$t4, $t4, $t9		# move on to next row (upwards)(the same column)
-		addiu	$t5, $t5, +3
+		addiu	$t5, $t5, 3
 		bltu	$t5, $t7, r270_fillbuf	# not end of output row yet
 		
 		# reached end of column
@@ -539,24 +500,11 @@ r270_fillbuf:	lbu	$t1, 0($t4)
 		move	$a1, $s1		# output buffer with 1 row
 		move	$a2, $s2
 		syscall
-			# check
-			#move	$v1, $v0	# number of characters written
-			#li	$v0, 4
-			#la	$a0, chars
-			#syscall
-			#li	$v0, 1
-			#move	$a0, $v1
-			#syscall
-		#;# $t7 - padding (in bytes)
-		# move to next column (towards right)
-		#;subu	$t0, $t0, $s2		# start byte of the next row
+
 		addu	$t5, $s1, $zero		# reset position in buffer ABSOLUTE
-		#;subu	$t4, $t4, $t7
-		#;subu	$t4, $t4, $t2		# set position in pixel array to next pixel to load
 		addiu	$t4, $t6, 3
-		addiu	$t6, $t6, 3		#;move $t6, $t4
-		#;bgeu	$t4, $s3, r270_fillbuf	# branch if there are more columns left to rotate	
-		addiu	$t8, $t8, 1			# increment column counter
+		addiu	$t6, $t6, 3		#;move $t6, $t4	
+		addiu	$t8, $t8, 1		# increment column counter
 		bltu	$t8, $s5, r270_fillbuf	# branch if there are more columns left to rotate
 		b close
 	
@@ -599,38 +547,28 @@ halfrot:
 		li	$v0, 4
 		la	$a0, r180
 		syscall	
-	# write pixels in loop
-		# prerequisite: 24bit/px
-		# $s6 - width in pixels
-		# $s5 - height in pixels
-		# bbb bytes - bits/px
-		# $s3 - input pixel array
-		#;srl	$t3, $t7, 3		# bytes/px (divide by 8)
-		li		$t3, 3			# bbb
+	# ...
+		li	$t3, 3			# bbb
 		multu	$t3, $s6
 		mflo	$s2			# size of row, without padding
-		and	$t5, $s2, 0x0003	# row_size mod 4 (bytes)
-		move	$t2, $zero		# [TODO][temp] padding
-		beqz	$t5, halfrot_nopad	# no padding
+		move	$t7, $s2
+		and	$t0, $s2, 0x0003	# row_size mod 4 (bytes)
+		beqz	$t0, halfrot_nopad	# no padding
 		li	$t1, 4
-		subu	$t5, $t1, $t5		# padding
-		move	$t2, $t5		# [TODO][temp] padding (in bytes)
-		addu	$s2, $s2, $t5		# size of row (in bytes)
+		subu	$t0, $t1, $t0		# padding
+		addu	$s2, $s2, $t0		# size of row (in bytes)
 halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 		move	$a0, $s2
 		syscall
 		move	$s1, $v0
 			# debug
 			li	$v0, 4
-			la	$a0, readcom
+			la	$a0, allocadr
 			syscall
 			li	$v0, 1
 			move	$a0, $s1
 			syscall
 			# _debug	
-		# $s2 - size of row (in bytes)
-		# bbb ($t3) - bytes/px
-		# $s1 - output buffer (for 1 row)
 			# debug
 			li	$v0, 4
 			la	$a0, rowsize
@@ -639,15 +577,16 @@ halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 			move	$a0, $s2
 			syscall
 			# _debug
-		addiu	$t0, $s5, -1	# from now $t0 == s18
+		# NOTE: output row size = input row size
+			# [TODO] In this case: row_size = pixel_arr_size / height
+		addiu	$t0, $s5, -1		# from now $t0 == s18
 		multu	$t0, $s2
 		mflo	$t0			# start byte of last row
 		addiu	$t1, $s6, -1
-		li		$t3, 3			# bbb
+		li	$t3, 3			# bbb
 		multu	$t1, $t3
 		mflo	$t1			# byte offset to last pixel in row
-		addu	$t4, $t0, $t1
-		# $t4 - current position (byte)	in pixel array
+		addu	$t4, $t0, $t1		# starting pos: last pixel in last row RELATIVE
 			# debug
 			li	$v0, 4
 			la	$a0, pix_number
@@ -656,52 +595,42 @@ halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 			move	$a0, $t4
 			syscall
 			# _debug
-		addu	$t4, $s3, $t4		# ABSOLUTE	-- input
-			# move	$t5, $zero	
-		addu	$t5, $s1, $zero		# ABSOLUTE	-- output
-		# $t5 - current position (byte) in output buffer ABSOLUTE
-		addu	$t0, $s3, $t0
-		# $t0 - start byte of current row ABSOLUTE
-		# write 2ms bytes of pixel to buffer
-r180_fillbuf:	lbu	$t1, 0($t4)
-		sb	$t1, 0($t5)
-		lbu	$t1, 1($t4)
-		sb	$t1, 1($t5)
-		lbu	$t1, 2($t4)
-		sb	$t1, 2($t5)
+		addu	$t4, $s3, $t4		# ABSOLUTE -- input
+		move	$t6, $t4		# starting position
+		addu	$t5, $s1, $zero		# ABSOLUTE -- output
+		addu	$t7, $s1, $t7		# stop condition for inner loop
+		move	$t8, $zero		# init row counter
+
+		# write bytes of current pixel to buffer
+r180_fillbuf:	lbu	$t0, 0($t4)
+		sb	$t0, 0($t5)
+		lbu	$t0, 1($t4)
+		sb	$t0, 1($t5)
+		lbu	$t0, 2($t4)
+		sb	$t0, 2($t5)
 		addiu	$t4, $t4, -3
-		addiu	$t5, $t5, +3
-		bgeu	$t4, $t0, r180_fillbuf	# not end of row yet
+		addiu	$t5, $t5, 3
+		bltu	$t5, $t7, r180_fillbuf	# not end of output row yet
+		
 		# reached end of row
 	# [TODO]	...			# add necessary padding (zeros)
-		# write buffer to output file
+		# write buffer to output file		
 		li	$v0, 15
 		move	$a0, $s7
 		move	$a1, $s1		# output buffer with 1 row
 		move	$a2, $s2
 		syscall
-			# check
-			#move	$v1, $v0	# number of characters written
-			#li	$v0, 4
-			#la	$a0, chars
-			#syscall
-			#li	$v0, 1
-			#move	$a0, $v1
-			#syscall
-		# ddn ($t2) - padding (in bytes)
-		# move to next row (upwards)
-		subu	$t0, $t0, $s2		# start byte of the next row
+
 		addu	$t5, $s1, $zero		# reset position in buffer ABSOLUTE
-		subu	$t4, $t4, $t2
-		addiu	$t4, $t4, -3		# set position in pixel array to next pixel to load
-		bgeu	$t0, $s3, r180_fillbuf	# branch if there are more rows left to rotate			
-		b close
-	
+		subu	$t4, $t6, $s2		# move on to next row (upwards)
+		move 	$t6, $t4	
+		addiu	$t8, $t8, 1		# increment row counter
+		bltu	$t8, $s5, r180_fillbuf	# branch if there are more rows left to rotate
 	
 close:		
 	# close output file
 		li	$v0, 16
-		move	$a0, $s7		# fd to close
+		move	$a0, $s7
 		syscall
 		
 done:		li	$v0, 4
