@@ -27,6 +27,7 @@ r90:		.asciiz "\nIt's a positive ninety!"
 ok:		.asciiz	"\nDone"
 emes:		.asciiz "\nExit\n"
 readcom:	.asciiz "\nRead: "
+wrotecom:	.asciiz "\nWrote: "
 rowsize:	.asciiz "\nRowsize: "
 pix_number:	.asciiz "\nPixel number: "
 		.align	2
@@ -234,7 +235,7 @@ input:		li	$v0, 4
 		la	$a0, in_n
 		syscall
 		####
-		li	$s5, 2
+		li	$s5, -1
 		####
 		li	$v0, 4
 		la	$a0, fed
@@ -264,13 +265,188 @@ chck_n:		li	$t0, 0x0003		# divisibility by 4 : 2ls bytes = 0
 		beq	$s4, 0, same_hdr	# write without changes [TODO]
 		beq	$s4, 2, same_hdr
 		#beq	$t0, 3, rotneg
-#rot90(pos) -- mask-and result=1
+		
+	# calculate new header fields for 90* and 270* rotations (they are the same)
+	# swap width and height (in pixels)
+		move	$t0, $t9
+		move	$t9, $t8
+		move	$t8, $t0
+	# calculate new size of row (in bytes)
+		# prerequisite: 24bit/px
+		# $t9 - new width in pixels
+		# $t8 - new height in pixels
+		# $t7 - bits/px
+		# $t6 - input pixel array
+		srl	$t2, $t7, 3		# bytes/px (divide by 8)
+		multu	$t2, $t9
+		mflo	$t3			# size of row, without padding
+		and	$t5, $t3, 0x0003	# row_size mod 4 (bytes)
+		move	$t7, $zero		# [TODO][temp] padding
+		beqz	$t5, qtrrot_nopad	# no padding
+		li	$t4, 4
+		subu	$t5, $t4, $t5		# padding
+		move	$t7, $t5		# [TODO][temp] padding
+		addu	$t3, $t3, $t5		# size of row (in bytes)
+qtrrot_nopad:	#li	$v0, 9			# allocate buffer for 1 row
+		#move	$a0, $t3
+		#syscall
+		#move	$s4, $v0
+			# debug
+			#li	$v0, 4
+			#la	$a0, readcom
+			#syscall
+			#li	$v0, 1
+			#move	$a0, $s4
+			#syscall
+			# _debug
+	# calculate new BMP data size (new pixel array size) (in bytes)
+		# $t3 - size of row (in bytes)
+		multu	$t3, $t8
+		mflo	$t0
+	# store new BMP data size
+		li	$t1, 16
+		sw	$t0, dibheader($t1)
+			# debug
+			li	$v0, 4
+			la	$a0, wrotecom
+			syscall
+			li	$v0, 1
+			move	$a0, $t0
+			syscall
+			# _debug
+	# store new width and height (in pixels)
+		sw	$t9, dibheader($zero)
+			# debug
+			li	$v0, 4
+			la	$a0, wrotecom
+			syscall
+			li	$v0, 1
+			move	$a0, $t9
+			syscall
+			# _debug
+		li	$t1, 4
+		sw	$t8, dibheader($t1)
+			# debug
+			li	$v0, 4
+			la	$a0, wrotecom
+			syscall
+			li	$v0, 1
+			move	$a0, $t8
+			syscall
+			# _debug
+	# calculate new BMP file size (in bytes)
+		# headers have constant size: together 54 bytes
+		addiu	$t0, $t0, 54
+	# store new BMP file size
+		li	$t1, 2
+		sw	$t0, fileheader($t1)
+			# debug
+			li	$v0, 4
+			la	$a0, wrotecom
+			syscall
+			li	$v0, 1
+			move	$a0, $t0
+			syscall
+			# _debug
+	# write headers
+		addu	$t1, $s1, 18		#[?][TODO] : simply 54 (14+40) >?
+		li	$v0, 15
+		move	$a0, $s7		# pass fd
+		la	$a1, fileheader		# pass address of output buffer
+		move	$a2, $t1		# pass number of characters to write
+		syscall
+			# check
+			move	$t1, $v0		# number of characters written
+			li	$v0, 4
+			la	$a0, chars
+			syscall
+			li	$v0, 1
+			move	$a0, $t1
+			syscall	
+		beq	$s4, 3, negqtrrot	
+qtrrot:	
+	#rot90(pos) -- mask-and result=1
+	# pixel array : 90*	
 		li	$v0, 4
 		la	$a0, r90
+		syscall		
+#post qtrrot_nopad:
+		# NOTE: for now it's just a copy of halfrot algorithm !!
+		# $t3 - size of row (in bytes)
+		# $t2 - bytes/px
+		# $s4 - output buffer (for 1 row)
+			# debug
+			li	$v0, 4
+			la	$a0, rowsize
+			syscall
+			li	$v0, 1
+			move	$a0, $t3
+			syscall
+			# _debug
+		addiu	$t0, $t8, -1
+		multu	$t0, $t3
+		mflo	$t0			# start byte of last row
+		addiu	$t1, $t9, -1
+		multu	$t1, $t2
+		mflo	$t1			# byte offset to last pixel in row
+		addu	$t4, $t0, $t1
+		# $t4 - current position (byte)	in pixel array
+			# debug
+			li	$v0, 4
+			la	$a0, pix_number
+			syscall
+			li	$v0, 1
+			move	$a0, $t4
+			syscall
+			# _debug
+		addu	$t4, $t6, $t4		# ABSOLUTE	-- input
+			# move	$t5, $zero	
+		addu	$t5, $s4, $zero		# ABSOLUTE	-- output
+		# $t5 - current position (byte) in output buffer ABSOLUTE
+		addu	$t0, $t6, $t0
+		# $t0 - start byte of current row ABSOLUTE
+		# write 2ms bytes of pixel to buffer
+r90_fillbuf:	lbu	$t1, 0($t4)
+		sb	$t1, 0($t5)
+		lbu	$t1, 1($t4)
+		sb	$t1, 1($t5)
+		lbu	$t1, 2($t4)
+		sb	$t1, 2($t5)
+		addiu	$t4, $t4, -3
+		addiu	$t5, $t5, +3
+		bgeu	$t4, $t0, r90_fillbuf	# not end of row yet
+		# reached end of row
+	# [TODO]	...			# add necessary padding (zeros)
+		# write buffer to output file
+		li	$v0, 15
+		move	$a0, $s7
+		move	$a1, $s4		# output buffer with 1 row
+		move	$a2, $t3
 		syscall
-	# do processing
+			# check
+			#move	$v1, $v0	# number of characters written
+			#li	$v0, 4
+			#la	$a0, chars
+			#syscall
+			#li	$v0, 1
+			#move	$a0, $v1
+			#syscall
+		# $t7 - padding (in bytes)
+		# move to next row (upwards)
+		subu	$t0, $t0, $t3		# start byte of the next row
+		addu	$t5, $s4, $zero		# reset position in buffer ABSOLUTE
+		subu	$t4, $t4, $t7
+		subu	$t4, $t4, $t2		# set position in pixel array to next pixel to load
+		bgeu	$t0, $t6, r90_fillbuf	# branch if there are more rows left to rotate			
 		b close
 	# or branch to done
+negqtrrot:	
+	# pixel array : 270*
+		li	$v0, 4
+		la	$a0, rneg90
+		syscall	
+		
+		b close
 	
 same_hdr:
 	# write headers
@@ -321,7 +497,7 @@ halfrot:
 		mflo	$t3			# size of row, without padding
 		and	$t5, $t3, 0x0003	# row_size mod 4 (bytes)
 		move	$t7, $zero		# [TODO][temp] padding
-		beqz	$t5, halfrot_nopad
+		beqz	$t5, halfrot_nopad	# no padding
 		li	$t4, 4
 		subu	$t5, $t4, $t5		# padding
 		move	$t7, $t5		# [TODO][temp] padding
