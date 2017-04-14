@@ -236,7 +236,7 @@ input:		li	$v0, 4
 		la	$a0, in_n
 		syscall
 		####
-		li	$s5, 9
+		li	$s5, -13
 		####
 		li	$v0, 4
 		la	$a0, fed
@@ -395,7 +395,7 @@ qtrrot_nopadold:
 # $s5 - 								{was user's input n}
 # $s4 - ;output buffer for 1 new row		{was 2 least significant bytes of input n}
 # $s3 - //let: output buffer
-# $s2 - stop cond for inner loop (buf + new row size without padding) ABSOLUTE!
+# $s2 - stop cond for inner loop (buf + new row size without padding) ABSOLUTE! <- at this point just rowsize!
 # $s1 - DIB header size				?
 
 # $t9 - new width in pixels
@@ -429,7 +429,7 @@ qtrrot:
 		#;addiu	$t0, $t8, -1
 		#;multu	$t0, $t3
 		#;mflo	$t0	
-		addiu	$t1, $t8, -1
+		addiu	$t1, $t8, -1	# old width-1
 		multu	$t1, $t2
 		mflo	$t1			# last pixel in first row (old)
 			# debug
@@ -455,7 +455,7 @@ r90_fillbuf:	lbu	$t1, 0($t4)
 		lbu	$t1, 2($t4)
 		sb	$t1, 2($t5)
 		
-		addu	$t4, $t4, $t7		# move on to next row (the same column)
+		addu	$t4, $t4, $t7		# move on to next row (downwards)(the same column)
 		addiu	$t5, $t5, +3
 		bltu	$t5, $s2, r90_fillbuf	# not end of output row yet
 		
@@ -486,12 +486,103 @@ r90_fillbuf:	lbu	$t1, 0($t4)
 		bgeu	$t4, $t6, r90_fillbuf	# branch if there are more columns left to rotate			
 		b close
 	# or branch to done
+	
+# prerequisite: 24bit/px
+# $s7 - output fd					!
+# $s6 - size of pixel array			?	<used in same_hdr>
+# $s5 - row/column counter (stop cond for outer loop)		{was user's input n}
+# $s4 - ;output buffer for 1 new row		{was 2 least significant bytes of input n}
+# $s3 - //let: output buffer
+# $s2 - stop cond for inner loop (buf + new row size without padding) ABSOLUTE! <- at this point just rowsize!
+# $s1 - DIB header size				?
+
+# $t9 - new width in pixels
+# $t8 - new height in pixels
+# $t7 - old row size
+# $t6 - input pixel array
+# $t5 - ABS pos output					old: old padding
+# $t4 -	ABS pos input	
+# $t3 - size of new row (in bytes)	
+# $t2 - pixel size in bytes
+# $t1 - POM, to copy form input to output buff
+# $t0 - start pos of inner loop (last pixel first row);stop condition of inner loop	
+	
 negqtrrot:	
 	# pixel array : 270*
 		li	$v0, 4
 		la	$a0, rneg90
 		syscall	
 		
+			# debug
+			li	$v0, 4
+			la	$a0, rowsize
+			syscall
+			li	$v0, 1
+			move	$a0, $t3
+			syscall
+			# _debug
+			
+		#;addiu	$t0, $t8, -1
+		#;multu	$t0, $t3
+		#;mflo	$t0	
+		addiu	$t1, $t9, -1	# old height-1
+		multu	$t1, $t7
+		mflo	$t1				# first pixel in last row (old)
+			# debug
+			li	$v0, 4
+			la	$a0, pix_number	# RELATIVE
+			syscall
+			li	$v0, 1
+			move	$a0, $t1
+			syscall
+			# _debug
+		addu	$t4, $t6, $t1		# ABSOLUTE -- input
+		move	$t0, $t4		# start pos in input
+				
+		addu	$t5, $s3, $zero		# ABSOLUTE -- output
+		addu	$s2, $s3, $s2		# stop condition for inner loop
+		move	$s5, $zero			# iter var for outer loop (column counter)
+		#;addu	$t0, $t6, $t0
+		#;# $t0 - start byte of current row ABSOLUTE
+
+r270_fillbuf:	lbu	$t1, 0($t4)
+		sb	$t1, 0($t5)
+		lbu	$t1, 1($t4)
+		sb	$t1, 1($t5)
+		lbu	$t1, 2($t4)
+		sb	$t1, 2($t5)
+		
+		subu	$t4, $t4, $t7		# move on to next row (upwards)(the same column)
+		addiu	$t5, $t5, +3
+		bltu	$t5, $s2, r270_fillbuf	# not end of output row yet
+		
+		# reached end of column
+	# [TODO]	...			# add necessary padding (zeros)
+		# write buffer to output file
+		li	$v0, 15
+		move	$a0, $s7
+		move	$a1, $s3		# output buffer with 1 row
+		move	$a2, $t3
+		syscall
+			# check
+			#move	$v1, $v0	# number of characters written
+			#li	$v0, 4
+			#la	$a0, chars
+			#syscall
+			#li	$v0, 1
+			#move	$a0, $v1
+			#syscall
+		#;# $t7 - padding (in bytes)
+		# move to next column (towards right)
+		#;subu	$t0, $t0, $t3		# start byte of the next row
+		addu	$t5, $s3, $zero		# reset position in buffer ABSOLUTE
+		#;subu	$t4, $t4, $t7
+		#;subu	$t4, $t4, $t2		# set position in pixel array to next pixel to load
+		addiu	$t4, $t0, 3
+		addiu	$t0, $t0, 3		#;move $t0, $t4
+		#;bgeu	$t4, $t6, r270_fillbuf	# branch if there are more columns left to rotate	
+		addiu	$s5, $s5, 1			# increment column counter
+		bltu	$s5, $t8, r270_fillbuf	# branch if there are more columns left to rotate
 		b close
 	
 same_hdr:
