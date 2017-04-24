@@ -43,45 +43,8 @@ pass_rotations:	.asciiz	"\nPass number of rotations (n * 90deg): "
 r180:		.asciiz "\nIt's a one-eighty!"
 rneg90:		.asciiz "\nIt's a negative ninety!"
 r90:		.asciiz "\nIt's a positive ninety!"
-exit_mes:	.asciiz "\nExit\n"
-ores:		.asciiz	"\nOpen returned: "
-
-# for debugging purposes
-fed:		.asciiz "\nGiven nineties: "
-chars:		.asciiz "\nThis many bytes: "
-readcom:	.asciiz "\nRead: "
-wrotecom:	.asciiz "\nWrote: "
-bytes_written:	.asciiz "\nBytes written to file: "
-rowsize:	.asciiz "\nRowsize: "
-pix_number:	.asciiz "\nPixel number: "
-allocaddr:	.asciiz "\nAllocated at addr: "
-
-dbg_start:	.asciiz	"\n###"
-dbg_end:	.asciiz	"###"
-
-
-# Convenience macros:
-		.macro DEBUG_print (%label, %reg)
-		li	$v0, 4
-		la	$a0, %label
-		syscall
-		li	$v0, 1
-		move	$a0, %reg
-		syscall
-		.end_macro
-		
-	# uses $v1 to remember the result to print out
-	# prints result form $v0
-		.macro DEBUG_print (%label)
-		move	$v1, $v0
-		li	$v0, 4
-		la	$a0, %label
-		syscall
-		li	$v0, 1
-		move	$a0, $v1
-		syscall
-		.end_macro
-# End of macros.
+done_mes:	.asciiz "\nDone\n"
+ferror_mes:	.asciiz	"\nProgram Rotaten90 could not open given file. Exiting.\n"
 
 		.text
 		.globl	main
@@ -106,16 +69,6 @@ loop_fname_in:	lbu	$t1, ($t0)		# t2 - actual char
 		
 		li	$t1, '\0'
 		sb	$t1, -1($t0)
-		
-		li	$v0, 4			# [debug]
-		la	$a0, dbg_start
-		syscall
-		li	$v0, 4
-		la	$a0, fname_buf
-		syscall
-		li	$v0, 4
-		la	$a0, dbg_end
-		syscall
 	
 	# open input file
 		li	$v0, 13
@@ -124,8 +77,7 @@ loop_fname_in:	lbu	$t1, ($t0)		# t2 - actual char
 		li	$a2, 0			# mode is ignored
 		syscall
 		move	$s7, $v0		# file descriptor
-		DEBUG_print (ores, $s7)
-		blt	$s7, 0, exit		# if opening og the file did not succeed
+		blt	$s7, 0, ferror_exit	# if opening of the file did not succeed
 		
 	# read fileheader
 		li	$v0, 14
@@ -133,26 +85,11 @@ loop_fname_in:	lbu	$t1, ($t0)		# t2 - actual char
 		la	$a1, fileheader
 		li	$a2, 18			# fileheader size
 		syscall
-		DEBUG_print (chars)
 	# examine fileheader
-		lhu	$t0, BM($zero)		# load "BM" to compare to
-		DEBUG_print (readcom, $t0)	
+		lhu	$t0, BM($zero)		# load "BM" to compare to	
 		lhu	$t1, fileheader($zero)	# load expected "BM" starting bytes
-		DEBUG_print (readcom, $t1)
 		bne	$t1, $t0, close		# not proper BMP format
 						# branch to close because both files share the same register for fd
-	  # load file size [debug]
-		li	$t0, 2
-		lw	$t1, fileheader($t0)
-		DEBUG_print (readcom, $t1)
-	  # load pixel array offset [debug]
-		li	$t0, 10
-		lw	$t1, fileheader($t0)
-		DEBUG_print (readcom, $t1)
-	  # load DIB header size [debug]
-		li	$t0, 14
-		lw	$t1, fileheader($t0)
-		DEBUG_print (readcom, $t1)
 		
 	# read DIB header
 		li	$v0, 14
@@ -160,39 +97,28 @@ loop_fname_in:	lbu	$t1, ($t0)		# t2 - actual char
 		la	$a1, dibheader
 		li	$a2, 36
 		syscall
-		DEBUG_print (chars)
 		
 	# examine DIB header
 	  # load width of the bitmap
 		lw	$s6, dibheader($zero)
-		DEBUG_print (readcom, $s6)
 	  # load height of the bitmap
 		li	$t0, 4
 		lw	$s5, dibheader($t0)
-		DEBUG_print (readcom, $s5)
-	  # load number of bits per pixel [debug]
-		li	$t0, 10
-		lhu	$t1, dibheader($t0)	# [TODO] check if 24
-		DEBUG_print (readcom, $t1)
 	  # load size of pixel array (bitmap data)
 		li	$t0, 16
 		lw	$s4, dibheader($t0)
-		DEBUG_print (readcom, $s4)
-	  # the rest ...			# [TODO]
 		
 	# sbrk: allocate memory for pixel array
 		li	$v0, 9			# sbrk
 		move	$a0, $s4		# number of bytes to allocate
 		syscall
 		move	$s3, $v0
-		DEBUG_print (allocaddr, $s3)
 	# read pixel array		
 		li	$v0, 14
 		move	$a0, $s7
 		move	$a1, $s3
 		move	$a2, $s4
 		syscall
-		DEBUG_print (chars)
 	# close input file
 		li	$v0, 16
 		move	$a0, $s7
@@ -215,16 +141,6 @@ loop_fname_out:	lbu	$t1, ($t0)		# t2 - actual char
 		
 		li	$t1, '\0'
 		sb	$t1, -1($t0)
-		
-		li	$v0, 4			# [debug]
-		la	$a0, dbg_start
-		syscall
-		li	$v0, 4
-		la	$a0, fname_buf
-		syscall
-		li	$v0, 4
-		la	$a0, dbg_end
-		syscall
 
 	# open output file
 		li	$v0, 13
@@ -233,8 +149,7 @@ loop_fname_out:	lbu	$t1, ($t0)		# t2 - actual char
 		li	$a2, 0			# mode is ignored
 		syscall
 		move	$s7, $v0		# file descriptor
-		DEBUG_print (ores, $s7)
-		blt	$s7, 0, exit		# if opening of the file did not succeed
+		blt	$s7, 0, ferror_exit	# if opening of the file did not succeed
 		
 	# read number of rotations (n*90) passed by user
 input:		li	$v0, 4
@@ -243,7 +158,6 @@ input:		li	$v0, 4
 		li	$v0, 5
 		syscall
 		move	$t0, $v0		# number of rotations
-		DEBUG_print (fed, $t0)
 		
 chck_n:		li	$t1, 0x0003		# divisibility by 4 : 2ls bytes = 0
 		and	$s0, $t0, $t1
@@ -262,37 +176,32 @@ chck_n:		li	$t1, 0x0003		# divisibility by 4 : 2ls bytes = 0
 		mflo	$s2			# size of row, without padding
 		move	$t7, $s2		# stop condition for inner loop
 		and	$t0, $s2, 0x0003	# row_size mod 4 (bytes)
-		move	$t2, $zero		# [TODO][temp] padding
+		move	$t2, $zero
 		beqz	$t0, qtrrot_nopad	# no padding
 		li	$t1, 4
 		subu	$t0, $t1, $t0		# padding (new)
-		move	$t2, $t0		# [TODO][temp] padding (new)(in bytes)
+		move	$t2, $t0
 		addu	$s2, $s2, $t0		# size of row (in bytes)
 qtrrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 		move	$a0, $s2
 		syscall
 		move	$s1, $v0
-		DEBUG_print (allocaddr, $s1)
 	  # calculate new BMP data size (new pixel array size) (in bytes)
 		multu	$s2, $s5
 		mflo	$t0
 	# store new BMP data size
 		li	$t1, 16
 		sw	$t0, dibheader($t1)
-		DEBUG_print (wrotecom, $t0)
 	# store new width and height (in pixels)
 		sw	$s6, dibheader($zero)
-		DEBUG_print (wrotecom, $s6)
 		li	$t1, 4
 		sw	$s5, dibheader($t1)
-		DEBUG_print (wrotecom, $s5)
 	# calculate new BMP file size (in bytes)
 	  # headers have constant size: together 54 bytes
 		addiu	$t0, $t0, 54
 	# store new BMP file size
 		li	$t1, 2
 		sw	$t0, fileheader($t1)
-		DEBUG_print (wrotecom, $t0)
 	# write headers
 		li	$t1, 54
 		li	$v0, 15
@@ -300,7 +209,6 @@ qtrrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 		la	$a1, fileheader
 		move	$a2, $t1
 		syscall
-		DEBUG_print (bytes_written)
 			
 	# calculate size of old rows (in bytes)
 		li	$t3, 3
@@ -320,13 +228,11 @@ qtrrot:
 		li	$v0, 4
 		la	$a0, r90
 		syscall		
-		DEBUG_print (rowsize, $s2)
 			
 		addiu	$t1, $s5, -1		# old width-1
 		li	$t3, 3
 		multu	$t1, $t3
 		mflo	$t1			# last pixel in first row (old)
-		DEBUG_print (pix_number, $t1)
 		addu	$t4, $s3, $t1		# ABSOLUTE -- input
 		move	$t6, $t4		# start pos in input				
 		addu	$t5, $s1, $zero		# ABSOLUTE -- output
@@ -341,7 +247,7 @@ r90_fillbuf:	lbu	$t1, 0($t4)
 		
 		addu	$t4, $t4, $t9		# move on to next row (downwards)(the same column)
 		addiu	$t5, $t5, 3
-		bltu	$t5, $t7, r90_fillbuf	# not end of output row yet
+		bltu	$t5, $t7, r90_fillbuf	# if not end of output row yet
 		
 	  # write buffer to output file
 		li	$v0, 15
@@ -361,12 +267,10 @@ negqtrrot:
 		li	$v0, 4
 		la	$a0, rneg90
 		syscall		
-		DEBUG_print (rowsize, $s2)
 				
 		addiu	$t1, $s6, -1		# old height-1
 		multu	$t1, $t9
 		mflo	$t1			# first pixel in last row (old)
-		DEBUG_print (pix_number, $t1)
 		addu	$t4, $s3, $t1		# ABSOLUTE -- input
 		move	$t6, $t4		# start pos in input
 				
@@ -383,7 +287,7 @@ r270_fillbuf:	lbu	$t1, 0($t4)
 		
 		subu	$t4, $t4, $t9		# move on to next row (upwards)(the same column)
 		addiu	$t5, $t5, 3
-		bltu	$t5, $t7, r270_fillbuf	# not end of output row yet
+		bltu	$t5, $t7, r270_fillbuf	# if not end of output row yet
 		
 	  # write buffer to output file
 		li	$v0, 15
@@ -407,7 +311,6 @@ same_hdr:
 		la	$a1, fileheader
 		move	$a2, $t1
 		syscall
-		DEBUG_print (bytes_written)	
 		beq	$s0, 2, halfrot
 		
 	# pixel array : 0*
@@ -417,7 +320,6 @@ same_hdr:
 		move	$a1, $s3
 		move	$a2, $s4
 		syscall
-		DEBUG_print (bytes_written)
 		b close			
 halfrot:	
 	# pixel array : 180*	
@@ -438,8 +340,6 @@ halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 		move	$a0, $s2
 		syscall
 		move	$s1, $v0
-		DEBUG_print (allocaddr, $s1)	
-		DEBUG_print (rowsize, $s2)
 		
 	  # NOTE: output row size = input row size
 		addiu	$t0, $s5, -1
@@ -450,7 +350,6 @@ halfrot_nopad:	li	$v0, 9			# allocate buffer for 1 row
 		multu	$t1, $t3
 		mflo	$t1			# byte offset to last pixel in row
 		addu	$t4, $t0, $t1		# starting pos: last pixel in last row RELATIVE
-		DEBUG_print (pix_number, $t4)
 		addu	$t4, $s3, $t4		# ABSOLUTE -- input
 		move	$t6, $t4		# starting position
 		addu	$t5, $s1, $zero		# ABSOLUTE -- output
@@ -487,8 +386,14 @@ close:
 		move	$a0, $s7
 		syscall
 		
-exit:		li	$v0, 4
-		la	$a0, exit_mes
+done_exit:	li	$v0, 4
+		la	$a0, done_mes
+		syscall
+		li	$v0, 10
+		syscall
+		
+ferror_exit:	li	$v0, 4
+		la	$a0, ferror_mes
 		syscall
 		li	$v0, 10
 		syscall
